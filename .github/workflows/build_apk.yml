@@ -13,16 +13,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 本地动态生成 512x512 的精美“代码文件”图标 (不依赖网络，100% 稳定)
-      - name: Generate Launcher Icon Source
+      # 2. 使用 Python 本地绘制生成高清图标 (极为稳定且不依赖系统预装工具)
+      - name: Generate Launcher Icon via Python
         run: |
-          mkdir -p assets
-          convert -size 512x512 xc:#2196F3 \
-            -fill white -draw "roundrectangle 64,64 448,448 40,40" \
-            -fill #2196F3 -draw "rectangle 128,160 384,200" \
-            -fill #2196F3 -draw "rectangle 128,240 320,280" \
-            -fill #2196F3 -draw "rectangle 128,320 224,360" \
-            assets/icon.png
+          pip install Pillow
+          python3 -c "
+          import os
+          from PIL import Image, ImageDraw
+          
+          # 创建资源目录
+          os.makedirs('assets', exist_ok=True)
+          
+          # 创建 512x512 蓝色画布
+          img = Image.new('RGB', (512, 512), color='#2196F3')
+          d = ImageDraw.Draw(img)
+          
+          # 绘制白色圆角矩形卡片
+          d.rounded_rectangle([64, 64, 448, 448], radius=40, fill='white')
+          
+          # 绘制三条代表代码行的蓝色横线
+          d.rectangle([128, 160, 384, 200], fill='#2196F3')
+          d.rectangle([128, 240, 320, 280], fill='#2196F3')
+          d.rectangle([128, 320, 224, 360], fill='#2196F3')
+          
+          # 保存为标准 PNG 图标
+          img.save('assets/icon.png')
+          print('Icon generated successfully!')
+          "
 
       # 3. 设置 Java 17
       - name: Set up JDK 17
