@@ -52,7 +52,7 @@ jobs:
       # =========================
       - name: Patch Android Configs
         run: |
-          python3 - <<'PY'
+          python3 -c "
           import os
           import re
 
@@ -66,30 +66,30 @@ jobs:
                   content = f.read()
 
               permissions = '''
-              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+              <uses-permission android:name=\"android.permission.MANAGE_EXTERNAL_STORAGE\"/>
+              <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>
+              <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>
               '''
 
               if 'MANAGE_EXTERNAL_STORAGE' not in content:
                   content = content.replace(
-                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions
+                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">',
+                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + permissions
                   )
 
               if 'requestLegacyExternalStorage' not in content:
                   content = content.replace(
                       '<application',
-                      '<application android:requestLegacyExternalStorage="true"'
+                      '<application android:requestLegacyExternalStorage=\"true\"'
                   )
 
-              content = content.replace('android:label="pro_code_extractor"', 'android:label="代码提取器"')
-              content = content.replace('android:label="pro_code_extractor_android"', 'android:label="代码提取器"')
+              content = content.replace('android:label=\"pro_code_extractor\"', 'android:label=\"代码提取器\"')
+              content = content.replace('android:label=\"pro_code_extractor_android\"', 'android:label=\"代码提取器\"')
 
               with open(manifest_path, 'w', encoding='utf-8') as f:
                   f.write(content)
 
-              print("AndroidManifest.xml patched successfully")
+              print(\"AndroidManifest.xml patched successfully\")
 
 
           # ==================================================
@@ -129,11 +129,11 @@ jobs:
               with open(gradle_path, 'w', encoding='utf-8') as f:
                   f.write(content)
 
-              print(f"Patched: {gradle_path}")
+              print(f\"Patched: {gradle_path}\")
 
 
           # ==================================================
-          # 3. 根目录 build.gradle (关键增改：解决第三方插件依赖冲突的核心逻辑)
+          # 3. 根目录 build.gradle (解决第三方插件依赖冲突的核心逻辑)
           # ==================================================
           root_gradle_path = 'android/build.gradle'
           if os.path.exists(root_gradle_path):
@@ -144,7 +144,7 @@ jobs:
               force_sdk_block = '''
           subprojects {
               afterEvaluate { project ->
-                  if (project.hasProperty("android")) {
+                  if (project.hasProperty(\"android\")) {
                       project.android {
                           compileSdk = 36
                           compileSdkVersion = 36
@@ -154,21 +154,21 @@ jobs:
           }
           '''
               if 'compileSdk = 36' not in root_gradle_content:
-                  root_gradle_content += '\n' + force_sdk_block
+                  root_gradle_content += '\\n' + force_sdk_block
 
               with open(root_gradle_path, 'w', encoding='utf-8') as f:
                   f.write(root_gradle_content)
-              print("Root build.gradle dynamically patched for all subprojects!")
+              print(\"Root build.gradle dynamically patched for all subprojects!\")
 
 
           # ==================================================
-          # 4. local.properties (关键增改：覆盖 Flutter SDK 传递给插件的默认配置变量)
+          # 4. local.properties (覆盖 Flutter SDK 传递给插件的默认配置变量)
           # ==================================================
           local_props_path = 'android/local.properties'
           with open(local_props_path, 'a', encoding='utf-8') as f:
-              f.write('\nflutter.compileSdkVersion=36\n')
-              f.write('flutter.targetSdkVersion=36\n')
-          print("local.properties patched with global compileSdkVersion=36")
+              f.write('\\nflutter.compileSdkVersion=36\\n')
+              f.write('flutter.targetSdkVersion=36\\n')
+          print(\"local.properties patched with global compileSdkVersion=36\")
 
 
           # ==================================================
@@ -191,9 +191,8 @@ jobs:
           if os.path.exists(gradle_prop):
               with open(gradle_prop, 'a', encoding='utf-8') as f:
                   f.write(extra_props)
-              print("gradle.properties optimized")
-
-          PY
+              print(\"gradle.properties optimized\")
+          "
 
       # =========================
       # 7. 生成图标
@@ -202,7 +201,7 @@ jobs:
         run: |
           pip install Pillow
 
-          python3 - <<'PY'
+          python3 - - <<'PY'
           import os
           from PIL import Image
           from PIL import ImageDraw
@@ -253,14 +252,13 @@ jobs:
         run: flutter pub get
 
       # =========================
-      # 12. 编译 APK (增加了 --no-watch-fs 参数避免 CI 系统上的文件监听冲突)
+      # 12. 编译 APK (移除不支持的 --no-watch-fs 参数)
       # =========================
       - name: Build APK
         run: |
           flutter build apk \
           --release \
-          --no-tree-shake-icons \
-          --no-watch-fs
+          --no-tree-shake-icons
 
       # =========================
       # 13. 重命名 APK
