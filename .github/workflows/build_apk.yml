@@ -9,69 +9,105 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出代码
+      # 1. 检出代码 (此时仓库里只需有 pubspec.yaml, lib/main.dart)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 使用 Python 本地绘制生成高清图标 (极为稳定且不依赖系统预装工具)
-      - name: Generate Launcher Icon via Python
-        run: |
-          pip install Pillow
-          python3 -c "
-          import os
-          from PIL import Image, ImageDraw
-          
-          # 创建资源目录
-          os.makedirs('assets', exist_ok=True)
-          
-          # 创建 512x512 蓝色画布
-          img = Image.new('RGB', (512, 512), color='#2196F3')
-          d = ImageDraw.Draw(img)
-          
-          # 绘制白色圆角矩形卡片
-          d.rounded_rectangle([64, 64, 448, 448], radius=40, fill='white')
-          
-          # 绘制三条代表代码行的蓝色横线
-          d.rectangle([128, 160, 384, 200], fill='#2196F3')
-          d.rectangle([128, 240, 320, 280], fill='#2196F3')
-          d.rectangle([128, 320, 224, 360], fill='#2196F3')
-          
-          # 保存为标准 PNG 图标
-          img.save('assets/icon.png')
-          print('Icon generated successfully!')
-          "
-
-      # 3. 设置 Java 17
+      # 2. 设置 Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 4. 设置 Flutter
+      # 3. 设置 Flutter
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 5. 安装依赖
+      # 4. 自动生成现代、无错的 Android 项目骨架 (规避一切 v1 embedding 及 Gradle 错误)
+      - name: Create Flutter Scaffolding
+        run: |
+          flutter create --platforms=android --org com.example .
+
+      # 5. 用 Python 动态注入安卓权限和中文 APP 名字 (代码提取器)
+      - name: Patch Android Manifest
+        run: |
+          python3 -c "
+          import os
+          manifest_path = 'android/app/src/main/AndroidManifest.xml'
+          with open(manifest_path, 'r', encoding='utf-8') as f:
+              content = f.read()
+
+          # 声明需要注入的权限
+          permissions = '''
+              <uses-permission android:name='android.permission.MANAGE_EXTERNAL_STORAGE' />
+              <uses-permission android:name='android.permission.READ_EXTERNAL_STORAGE'/>
+              <uses-permission android:name='android.permission.WRITE_EXTERNAL_STORAGE'/>
+          '''
+          
+          # 1. 注入存储权限
+          if 'MANAGE_EXTERNAL_STORAGE' not in content:
+              content = content.replace(
+                  '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">',
+                  '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + permissions
+              )
+
+          # 2. 注入旧版外部存储请求属性 (增强兼容性)
+          if 'android:requestLegacyExternalStorage' not in content:
+              content = content.replace(
+                  '<application',
+                  '<application android:requestLegacyExternalStorage=\"true\"'
+              )
+
+          # 3. 修改应用桌面名称为 '代码提取器'
+          content = content.replace('android:label=\"pro_code_extractor\"', 'android:label=\"代码提取器\"')
+          content = content.replace('android:label=\"pro_code_extractor_android\"', 'android:label=\"代码提取器\"')
+
+          with open(manifest_path, 'w', encoding='utf-8') as f:
+              f.write(content)
+          
+          print('AndroidManifest.xml patched successfully!')
+          "
+
+      # 6. 使用 Python 本地绘制生成高清图标
+      - name: Generate Launcher Icon Source
+        run: |
+          pip install Pillow
+          python3 -c "
+          import os
+          from PIL import Image, ImageDraw
+          
+          os.makedirs('assets', exist_ok=True)
+          img = Image.new('RGB', (512, 512), color='#2196F3')
+          d = ImageDraw.Draw(img)
+          d.rounded_rectangle([64, 64, 448, 448], radius=40, fill='white')
+          d.rectangle([128, 160, 384, 200], fill='#2196F3')
+          d.rectangle([128, 240, 320, 280], fill='#2196F3')
+          d.rectangle([128, 320, 224, 360], fill='#2196F3')
+          img.save('assets/icon.png')
+          print('Icon generated successfully!')
+          "
+
+      # 7. 安装依赖
       - name: Install dependencies
         run: flutter pub get
 
-      # 6. 自动为 Android 平台生成适配的所有尺寸图标
+      # 8. 自动为 Android 平台生成适配的所有尺寸图标
       - name: Generate Icons
         run: flutter pub run flutter_launcher_icons
 
-      # 7. 编译 Release APK
+      # 9. 编译 Release APK
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
 
-      # 8. 规范化 APK 文件名称
+      # 10. 规范化 APK 文件名称
       - name: Rename APK
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/CodeExtractor_v1.0.0.apk
 
-      # 9. 上传重命名后的 APK
+      # 11. 上传重命名后的 APK
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
