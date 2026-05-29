@@ -13,13 +13,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 创建资源目录并在线下载精美图标 (免费开源的代码文件夹图标)
+      # 2. 下载真正的高清 PNG 图标 (维基百科托管的 512x512 蓝色项目文件夹图标)
       - name: Download Launcher Icon
         run: |
           mkdir -p assets
-          curl -L -o assets/icon.png "https://raw.githubusercontent.com/primer/octicons/main/icons/file-directory-symlink-24.png"
-          # 如果上述图标连接较慢，也可以使用此备用地址（一个精美的高清代码盒子图标）：
-          # curl -L -o assets/icon.png "https://cdn-icons-png.flaticon.com/512/606/606263.png"
+          curl -fsSL -o assets/icon.png "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/OneDrive_Folder_Icon.svg/512px-OneDrive_Folder_Icon.svg.png"
 
       # 3. 设置 Java 17
       - name: Set up JDK 17
@@ -55,5 +53,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CodeExtractor_Android_Installation_File # 网页端下载时的文件夹名
+          name: CodeExtractor_Android_Installation_File
           path: build/app/outputs/flutter-apk/CodeExtractor_v1.0.0.apk
