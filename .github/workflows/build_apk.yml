@@ -1,7 +1,6 @@
 name: Build Android APK
 
 on:
-
   workflow_dispatch:
 
 jobs:
@@ -9,140 +8,271 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出代码
+
+      # =========================
+      # 1. 拉取仓库
+      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置 Java 17
+      # =========================
+      # 2. Java 17
+      # =========================
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: zulu
+          java-version: 17
 
-      # 3. 设置 Flutter
+      # =========================
+      # 3. Flutter
+      # =========================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
 
-      # 4. 自动生成现代、无错的 Android 项目骨架
-      - name: Create Flutter Scaffolding
+      # =========================
+      # 4. Flutter 信息
+      # =========================
+      - name: Flutter Doctor
+        run: flutter doctor -v
+
+      # =========================
+      # 5. 如果没有 android 工程则自动创建
+      # =========================
+      - name: Create Android Project If Missing
         run: |
-          flutter create --platforms=android --org com.example .
+          if [ ! -d "android" ]; then
+            flutter create --platforms=android --org com.example .
+          fi
 
-      # 5. 用 Python 动态修改安卓配置 (注入存储权限、修改应用名称、全局强制插件编译版本为 36)
+      # =========================
+      # 6. 修复 Android 配置（整合：高性能优化 + 全局插件 compileSdk 强制提升）
+      # =========================
       - name: Patch Android Configs
         run: |
-          python3 -c "
+          python3 - <<'PY'
           import os
+          import re
 
-          # === 1. 修复 AndroidManifest.xml (权限与名称) ===
+          # ==================================================
+          # 1. AndroidManifest.xml (注入权限与中文名称)
+          # ==================================================
           manifest_path = 'android/app/src/main/AndroidManifest.xml'
+
           if os.path.exists(manifest_path):
               with open(manifest_path, 'r', encoding='utf-8') as f:
                   content = f.read()
 
               permissions = '''
-                  <uses-permission android:name='android.permission.MANAGE_EXTERNAL_STORAGE' />
-                  <uses-permission android:name='android.permission.READ_EXTERNAL_STORAGE'/>
-                  <uses-permission android:name='android.permission.WRITE_EXTERNAL_STORAGE'/>
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
               '''
-              
+
               if 'MANAGE_EXTERNAL_STORAGE' not in content:
                   content = content.replace(
-                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">',
-                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + permissions
+                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions
                   )
 
-              if 'android:requestLegacyExternalStorage' not in content:
+              if 'requestLegacyExternalStorage' not in content:
                   content = content.replace(
                       '<application',
-                      '<application android:requestLegacyExternalStorage=\"true\"'
+                      '<application android:requestLegacyExternalStorage="true"'
                   )
 
-              content = content.replace('android:label=\"pro_code_extractor\"', 'android:label=\"代码提取器\"')
-              content = content.replace('android:label=\"pro_code_extractor_android\"', 'android:label=\"代码提取器\"')
+              content = content.replace('android:label="pro_code_extractor"', 'android:label="代码提取器"')
+              content = content.replace('android:label="pro_code_extractor_android"', 'android:label="代码提取器"')
 
               with open(manifest_path, 'w', encoding='utf-8') as f:
                   f.write(content)
-              print('AndroidManifest.xml patched successfully!')
 
-          # === 2. 修复主项目 build.gradle (compileSdk -> 36) ===
-          gradle_path = 'android/app/build.gradle'
-          if os.path.exists(gradle_path):
+              print("AndroidManifest.xml patched successfully")
+
+
+          # ==================================================
+          # 2. build.gradle / build.gradle.kts (修复本地 Gradle)
+          # ==================================================
+          gradle_files = [
+              'android/app/build.gradle',
+              'android/app/build.gradle.kts',
+              'android/build.gradle',
+              'android/build.gradle.kts'
+          ]
+
+          for gradle_path in gradle_files:
+              if not os.path.exists(gradle_path):
+                  continue
+
               with open(gradle_path, 'r', encoding='utf-8') as f:
-                  gradle_content = f.read()
+                  content = f.read()
 
-              gradle_content = gradle_content.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
-              gradle_content = gradle_content.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
+              # compileSdk 强升 36
+              content = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', content)
+              content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', content)
+
+              # targetSdk 强升 36
+              content = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 36', content)
+              content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 36', content)
+
+              # 如果配置块中没有 compileSdk 定义，则手动补充
+              if 'compileSdk = 36' not in content and 'compileSdkVersion 36' not in content:
+                  content = re.sub(
+                      r'android\s*\{',
+                      'android {\n    compileSdk = 36',
+                      content,
+                      count=1
+                  )
 
               with open(gradle_path, 'w', encoding='utf-8') as f:
-                  f.write(gradle_content)
-              print('build.gradle patched successfully!')
+                  f.write(content)
 
-          # === 3. 修复根目录 build.gradle (全局强制所有第三方子插件一律使用 compileSdkVersion 36 编译) ===
+              print(f"Patched: {gradle_path}")
+
+
+          # ==================================================
+          # 3. 根目录 build.gradle (关键增改：解决第三方插件依赖冲突的核心逻辑)
+          # ==================================================
           root_gradle_path = 'android/build.gradle'
           if os.path.exists(root_gradle_path):
               with open(root_gradle_path, 'r', encoding='utf-8') as f:
                   root_gradle_content = f.read()
 
+              # 注入全局强制重写，要求所有 evaluated 的子项目（包括 file_picker）必须以 compileSdk 36 编译
               force_sdk_block = '''
           subprojects {
               afterEvaluate { project ->
-                  if (project.hasProperty(\"android\")) {
+                  if (project.hasProperty("android")) {
                       project.android {
-                          compileSdkVersion 36
+                          compileSdk = 36
+                          compileSdkVersion = 36
                       }
                   }
               }
           }
           '''
-              if 'compileSdkVersion 36' not in root_gradle_content:
+              if 'compileSdk = 36' not in root_gradle_content:
                   root_gradle_content += '\n' + force_sdk_block
 
               with open(root_gradle_path, 'w', encoding='utf-8') as f:
                   f.write(root_gradle_content)
-              print('Root build.gradle patched to force all plugins compileSdkVersion to 36!')
-          "
+              print("Root build.gradle dynamically patched for all subprojects!")
 
-      # 6. 使用 Python 本地绘制生成高清图标
+
+          # ==================================================
+          # 4. local.properties (关键增改：覆盖 Flutter SDK 传递给插件的默认配置变量)
+          # ==================================================
+          local_props_path = 'android/local.properties'
+          with open(local_props_path, 'a', encoding='utf-8') as f:
+              f.write('\nflutter.compileSdkVersion=36\n')
+              f.write('flutter.targetSdkVersion=36\n')
+          print("local.properties patched with global compileSdkVersion=36")
+
+
+          # ==================================================
+          # 5. gradle.properties (JVM 构建性能优化)
+          # ==================================================
+          gradle_prop = 'android/gradle.properties'
+          extra_props = '''
+
+          android.useAndroidX=true
+          android.enableJetifier=true
+
+          org.gradle.jvmargs=-Xmx4096m
+
+          org.gradle.daemon=true
+          org.gradle.parallel=true
+          org.gradle.configureondemand=true
+
+          '''
+
+          if os.path.exists(gradle_prop):
+              with open(gradle_prop, 'a', encoding='utf-8') as f:
+                  f.write(extra_props)
+              print("gradle.properties optimized")
+
+          PY
+
+      # =========================
+      # 7. 生成图标
+      # =========================
       - name: Generate Launcher Icon Source
         run: |
           pip install Pillow
-          python3 -c "
-          import os
-          from PIL import Image, ImageDraw
-          
-          os.makedirs('assets', exist_ok=True)
-          img = Image.new('RGB', (512, 512), color='#2196F3')
-          d = ImageDraw.Draw(img)
-          d.rounded_rectangle([64, 64, 448, 448], radius=40, fill='white')
-          d.rectangle([128, 160, 384, 200], fill='#2196F3')
-          d.rectangle([128, 240, 320, 280], fill='#2196F3')
-          d.rectangle([128, 320, 224, 360], fill='#2196F3')
-          img.save('assets/icon.png')
-          print('Icon generated successfully!')
-          "
 
-      # 7. 安装依赖
-      - name: Install dependencies
+          python3 - <<'PY'
+          import os
+          from PIL import Image
+          from PIL import ImageDraw
+
+          os.makedirs('assets', exist_ok=True)
+
+          img = Image.new('RGB', (512, 512), '#2196F3')
+
+          d = ImageDraw.Draw(img)
+
+          d.rounded_rectangle(
+              [64, 64, 448, 448],
+              radius=50,
+              fill='white'
+          )
+
+          d.rectangle([120,160,392,200], fill='#2196F3')
+          d.rectangle([120,250,320,290], fill='#2196F3')
+          d.rectangle([120,340,220,380], fill='#2196F3')
+
+          img.save('assets/icon.png')
+
+          print("Icon generated")
+          PY
+
+      # =========================
+      # 8. 安装依赖
+      # =========================
+      - name: Install Dependencies
         run: flutter pub get
 
-      # 8. 自动为 Android 平台生成适配的所有尺寸图标
-      - name: Generate Icons
+      # =========================
+      # 9. 生成 App 图标
+      # =========================
+      - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons
 
-      # 9. 编译 Release APK
-      - name: Build APK
-        run: flutter build apk --release --no-tree-shake-icons
+      # =========================
+      # 10. 清理缓存
+      # =========================
+      - name: Flutter Clean
+        run: flutter clean
 
-      # 10. 规范化 APK 文件名称
+      # =========================
+      # 11. 重新获取依赖
+      # =========================
+      - name: Pub Get Again
+        run: flutter pub get
+
+      # =========================
+      # 12. 编译 APK (增加了 --no-watch-fs 参数避免 CI 系统上的文件监听冲突)
+      # =========================
+      - name: Build APK
+        run: |
+          flutter build apk \
+          --release \
+          --no-tree-shake-icons \
+          --no-watch-fs
+
+      # =========================
+      # 13. 重命名 APK
+      # =========================
       - name: Rename APK
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/CodeExtractor_v1.0.0.apk
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/CodeExtractor_v1.0.0.apk
 
-      # 11. 上传重命名后的 APK
+      # =========================
+      # 14. 上传 APK
+      # =========================
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
