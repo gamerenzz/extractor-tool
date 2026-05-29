@@ -48,7 +48,64 @@ jobs:
           fi
 
       # =========================
-      # 6. 修复 Android 配置（整合：高性能优化 + 全局插件 compileSdk 强制提升）
+      # 6. 生成图标源文件 (提前执行，不受 clean 影响)
+      # =========================
+      - name: Generate Launcher Icon Source
+        run: |
+          pip install Pillow
+
+          python3 - - <<'PY'
+          import os
+          from PIL import Image
+          from PIL import ImageDraw
+
+          os.makedirs('assets', exist_ok=True)
+
+          img = Image.new('RGB', (512, 512), '#2196F3')
+
+          d = ImageDraw.Draw(img)
+
+          d.rounded_rectangle(
+              [64, 64, 448, 448],
+              radius=50,
+              fill='white'
+          )
+
+          d.rectangle([120,160,392,200], fill='#2196F3')
+          d.rectangle([120,250,320,290], fill='#2196F3')
+          d.rectangle([120,340,220,380], fill='#2196F3')
+
+          img.save('assets/icon.png')
+
+          print("Icon generated")
+          PY
+
+      # =========================
+      # 7. 安装依赖
+      # =========================
+      - name: Install Dependencies
+        run: flutter pub get
+
+      # =========================
+      # 8. 生成 App 图标
+      # =========================
+      - name: Generate App Icons
+        run: flutter pub run flutter_launcher_icons
+
+      # =========================
+      # 9. 清理缓存 (在修改安卓配置之前，先把它清干净！)
+      # =========================
+      - name: Flutter Clean
+        run: flutter clean
+
+      # =========================
+      # 10. 重新获取依赖 (干净的状态下重建配置，此时会生成默认的 local.properties)
+      # =========================
+      - name: Pub Get Again
+        run: flutter pub get
+
+      # =========================
+      # 11. 修复 Android 配置（放至此处！确保修改绝对不被 clean 擦除）
       # =========================
       - name: Patch Android Configs
         run: |
@@ -195,64 +252,7 @@ jobs:
           "
 
       # =========================
-      # 7. 生成图标
-      # =========================
-      - name: Generate Launcher Icon Source
-        run: |
-          pip install Pillow
-
-          python3 - - <<'PY'
-          import os
-          from PIL import Image
-          from PIL import ImageDraw
-
-          os.makedirs('assets', exist_ok=True)
-
-          img = Image.new('RGB', (512, 512), '#2196F3')
-
-          d = ImageDraw.Draw(img)
-
-          d.rounded_rectangle(
-              [64, 64, 448, 448],
-              radius=50,
-              fill='white'
-          )
-
-          d.rectangle([120,160,392,200], fill='#2196F3')
-          d.rectangle([120,250,320,290], fill='#2196F3')
-          d.rectangle([120,340,220,380], fill='#2196F3')
-
-          img.save('assets/icon.png')
-
-          print("Icon generated")
-          PY
-
-      # =========================
-      # 8. 安装依赖
-      # =========================
-      - name: Install Dependencies
-        run: flutter pub get
-
-      # =========================
-      # 9. 生成 App 图标
-      # =========================
-      - name: Generate App Icons
-        run: flutter pub run flutter_launcher_icons
-
-      # =========================
-      # 10. 清理缓存
-      # =========================
-      - name: Flutter Clean
-        run: flutter clean
-
-      # =========================
-      # 11. 重新获取依赖
-      # =========================
-      - name: Pub Get Again
-        run: flutter pub get
-
-      # =========================
-      # 12. 编译 APK (移除不支持的 --no-watch-fs 参数)
+      # 12. 编译 APK (此时的配置文件是最完美的，直接启动编译)
       # =========================
       - name: Build APK
         run: |
