@@ -31,7 +31,7 @@ jobs:
         run: |
           flutter create --platforms=android --org com.example .
 
-      # 5. 用 Python 动态修改安卓配置 (注入存储权限、修改应用名称、强升 compileSdk 至 36)
+      # 5. 用 Python 动态修改安卓配置 (注入存储权限、修改应用名称、全局强制插件编译版本为 36)
       - name: Patch Android Configs
         run: |
           python3 -c "
@@ -68,19 +68,42 @@ jobs:
                   f.write(content)
               print('AndroidManifest.xml patched successfully!')
 
-          # === 2. 修复 build.gradle (强制将 compileSdk 提升至 36 解决编译版本冲突) ===
+          # === 2. 修复主项目 build.gradle (compileSdk -> 36) ===
           gradle_path = 'android/app/build.gradle'
           if os.path.exists(gradle_path):
               with open(gradle_path, 'r', encoding='utf-8') as f:
                   gradle_content = f.read()
 
-              # 替换 compileSdk 定义以满足最新 lifecycle 依赖
               gradle_content = gradle_content.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
               gradle_content = gradle_content.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
 
               with open(gradle_path, 'w', encoding='utf-8') as f:
                   f.write(gradle_content)
-              print('build.gradle patched with compileSdk = 36!')
+              print('build.gradle patched successfully!')
+
+          # === 3. 修复根目录 build.gradle (全局强制所有第三方子插件一律使用 compileSdkVersion 36 编译) ===
+          root_gradle_path = 'android/build.gradle'
+          if os.path.exists(root_gradle_path):
+              with open(root_gradle_path, 'r', encoding='utf-8') as f:
+                  root_gradle_content = f.read()
+
+              force_sdk_block = '''
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty(\"android\")) {
+                      project.android {
+                          compileSdkVersion 36
+                      }
+                  }
+              }
+          }
+          '''
+              if 'compileSdkVersion 36' not in root_gradle_content:
+                  root_gradle_content += '\n' + force_sdk_block
+
+              with open(root_gradle_path, 'w', encoding='utf-8') as f:
+                  f.write(root_gradle_content)
+              print('Root build.gradle patched to force all plugins compileSdkVersion to 36!')
           "
 
       # 6. 使用 Python 本地绘制生成高清图标
