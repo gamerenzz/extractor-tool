@@ -256,7 +256,8 @@ class _CodeExtractorHomeState extends State<CodeExtractorHome> {
               ],
             ),
             const SizedBox(height: 4),
-            Text(_statusText, style: const TextStyle(grey: Colors.grey, fontSize: 12)),
+            // 修正此处：将 grey 替换为 color 属性
+            Text(_statusText, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 8),
             // 预览区域
             const Text("内容预览:", style: TextStyle(fontWeight: FontWeight.bold)),
