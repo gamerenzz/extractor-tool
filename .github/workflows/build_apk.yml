@@ -13,11 +13,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 下载真正的高清 PNG 图标 (维基百科托管的 512x512 蓝色项目文件夹图标)
-      - name: Download Launcher Icon
+      # 2. 本地动态生成 512x512 的精美“代码文件”图标 (不依赖网络，100% 稳定)
+      - name: Generate Launcher Icon Source
         run: |
           mkdir -p assets
-          curl -fsSL -o assets/icon.png "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/OneDrive_Folder_Icon.svg/512px-OneDrive_Folder_Icon.svg.png"
+          convert -size 512x512 xc:#2196F3 \
+            -fill white -draw "roundrectangle 64,64 448,448 40,40" \
+            -fill #2196F3 -draw "rectangle 128,160 384,200" \
+            -fill #2196F3 -draw "rectangle 128,240 320,280" \
+            -fill #2196F3 -draw "rectangle 128,320 224,360" \
+            assets/icon.png
 
       # 3. 设置 Java 17
       - name: Set up JDK 17
