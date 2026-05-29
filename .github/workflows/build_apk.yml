@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+
+  workflow_dispatch:      # 允许您在 GitHub 网页上手动点击按钮触发编译
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. 设置 Java 环境 (Flutter 安卓打包必需)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. 安装 Flutter 编译环境
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # 4. 获取项目依赖
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. 编译 Release 版本 APK
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      # 6. 将生成的 APK 转化为可下载的网页构件 (Artifact)
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pro-code-extractor-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
