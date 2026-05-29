@@ -48,7 +48,7 @@ jobs:
           fi
 
       # =========================
-      # 6. 生成图标源文件 (提前执行，不受 clean 影响)
+      # 6. 生成图标源文件 (提前执行)
       # =========================
       - name: Generate Launcher Icon Source
         run: |
@@ -93,19 +93,19 @@ jobs:
         run: flutter pub run flutter_launcher_icons
 
       # =========================
-      # 9. 清理缓存 (在修改安卓配置之前，先把它清干净！)
+      # 9. 清理缓存 (在修改安卓配置和缓存之前，先把它清干净)
       # =========================
       - name: Flutter Clean
         run: flutter clean
 
       # =========================
-      # 10. 重新获取依赖 (干净的状态下重建配置，此时会生成默认的 local.properties)
+      # 10. 重新获取依赖 (此时会将所有插件下载至全局 pub-cache 缓存中)
       # =========================
       - name: Pub Get Again
         run: flutter pub get
 
       # =========================
-      # 11. 修复 Android 配置（放至此处！确保修改绝对不被 clean 擦除）
+      # 11. 修复 Android 配置与全局缓存 (穿透式直接修改本地和 pub-cache 中的 Gradle 配置)
       # =========================
       - name: Patch Android Configs
         run: |
@@ -113,11 +113,10 @@ jobs:
           import os
           import re
 
-          # ==================================================
-          # 1. AndroidManifest.xml (注入权限与中文名称)
-          # ==================================================
+          # --------------------------------------------------
+          # 1. 修复本地 AndroidManifest.xml (权限与名称)
+          # --------------------------------------------------
           manifest_path = 'android/app/src/main/AndroidManifest.xml'
-
           if os.path.exists(manifest_path):
               with open(manifest_path, 'r', encoding='utf-8') as f:
                   content = f.read()
@@ -145,13 +144,11 @@ jobs:
 
               with open(manifest_path, 'w', encoding='utf-8') as f:
                   f.write(content)
+              print(\"Local AndroidManifest.xml patched successfully\")
 
-              print(\"AndroidManifest.xml patched successfully\")
-
-
-          # ==================================================
-          # 2. build.gradle / build.gradle.kts (修复本地 Gradle)
-          # ==================================================
+          # --------------------------------------------------
+          # 2. 修复本地 build.gradle 和 local.properties
+          # --------------------------------------------------
           gradle_files = [
               'android/app/build.gradle',
               'android/app/build.gradle.kts',
@@ -162,89 +159,68 @@ jobs:
           for gradle_path in gradle_files:
               if not os.path.exists(gradle_path):
                   continue
-
               with open(gradle_path, 'r', encoding='utf-8') as f:
                   content = f.read()
 
-              # compileSdk 强升 36
               content = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', content)
               content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', content)
-
-              # targetSdk 强升 36
               content = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 36', content)
               content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 36', content)
 
-              # 如果配置块中没有 compileSdk 定义，则手动补充
               if 'compileSdk = 36' not in content and 'compileSdkVersion 36' not in content:
-                  content = re.sub(
-                      r'android\s*\{',
-                      'android {\n    compileSdk = 36',
-                      content,
-                      count=1
-                  )
+                  content = re.sub(r'android\s*\{', 'android {\n    compileSdk = 36', content, count=1)
 
               with open(gradle_path, 'w', encoding='utf-8') as f:
                   f.write(content)
+              print(f\"Local gradle file patched: {gradle_path}\")
 
-              print(f\"Patched: {gradle_path}\")
-
-
-          # ==================================================
-          # 3. 根目录 build.gradle (解决第三方插件依赖冲突的核心逻辑)
-          # ==================================================
-          root_gradle_path = 'android/build.gradle'
-          if os.path.exists(root_gradle_path):
-              with open(root_gradle_path, 'r', encoding='utf-8') as f:
-                  root_gradle_content = f.read()
-
-              # 注入全局强制重写，要求所有 evaluated 的子项目（包括 file_picker）必须以 compileSdk 36 编译
-              force_sdk_block = '''
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty(\"android\")) {
-                      project.android {
-                          compileSdk = 36
-                          compileSdkVersion = 36
-                      }
-                  }
-              }
-          }
-          '''
-              if 'compileSdk = 36' not in root_gradle_content:
-                  root_gradle_content += '\\n' + force_sdk_block
-
-              with open(root_gradle_path, 'w', encoding='utf-8') as f:
-                  f.write(root_gradle_content)
-              print(\"Root build.gradle dynamically patched for all subprojects!\")
-
-
-          # ==================================================
-          # 4. local.properties (覆盖 Flutter SDK 传递给插件的默认配置变量)
-          # ==================================================
+          # 写入本地 local.properties
           local_props_path = 'android/local.properties'
           with open(local_props_path, 'a', encoding='utf-8') as f:
-              f.write('\\nflutter.compileSdkVersion=36\\n')
-              f.write('flutter.targetSdkVersion=36\\n')
-          print(\"local.properties patched with global compileSdkVersion=36\")
+              f.write('\\nflutter.compileSdkVersion=36\\nflutter.targetSdkVersion=36\\n')
+          print(\"Local local.properties patched\")
 
+          # --------------------------------------------------
+          # 3. 强力穿透：直接扫描并修改全局 pub-cache 中所有第三方插件的 Gradle 配置文件
+          # --------------------------------------------------
+          pub_cache_path = os.path.expanduser('~/.pub-cache')
+          if os.path.exists(pub_cache_path):
+              print(f\"Scanning and patching pub-cache at: {pub_cache_path}\")
+              patched_count = 0
+              for root, dirs, files in os.walk(pub_cache_path):
+                  for file in files:
+                      if file in ['build.gradle', 'build.gradle.kts']:
+                          gradle_path = os.path.join(root, file)
+                          try:
+                              with open(gradle_path, 'r', encoding='utf-8') as f:
+                                  content = f.read()
 
-          # ==================================================
-          # 5. gradle.properties (JVM 构建性能优化)
-          # ==================================================
+                              # 使用正则表达式，强行将插件内的任何 compileSdk/targetSdk 版本号改写为 36
+                              new_content = re.sub(r'compileSdkVersion\s*=?\s*(\d+|flutter\.compileSdkVersion)', 'compileSdkVersion 36', content)
+                              new_content = re.sub(r'compileSdk\s*=?\s*(\d+|flutter\.compileSdkVersion)', 'compileSdk = 36', new_content)
+                              new_content = re.sub(r'targetSdkVersion\s*=?\s*(\d+|flutter\.targetSdkVersion)', 'targetSdkVersion 36', new_content)
+                              new_content = re.sub(r'targetSdk\s*=?\s*(\d+|flutter\.targetSdkVersion)', 'targetSdk = 36', new_content)
+
+                              if new_content != content:
+                                  with open(gradle_path, 'w', encoding='utf-8') as f:
+                                      f.write(new_content)
+                                  patched_count += 1
+                          except Exception:
+                              pass
+              print(f\"Successfully patched {patched_count} cached plugin Gradle files!\")
+
+          # --------------------------------------------------
+          # 4. 优化本地 gradle.properties
+          # --------------------------------------------------
           gradle_prop = 'android/gradle.properties'
           extra_props = '''
-
           android.useAndroidX=true
           android.enableJetifier=true
-
           org.gradle.jvmargs=-Xmx4096m
-
           org.gradle.daemon=true
           org.gradle.parallel=true
           org.gradle.configureondemand=true
-
           '''
-
           if os.path.exists(gradle_prop):
               with open(gradle_prop, 'a', encoding='utf-8') as f:
                   f.write(extra_props)
@@ -252,7 +228,7 @@ jobs:
           "
 
       # =========================
-      # 12. 编译 APK (此时的配置文件是最完美的，直接启动编译)
+      # 12. 编译 APK (此时 pub-cache 源码已被重置，直接编译必然成功)
       # =========================
       - name: Build APK
         run: |
