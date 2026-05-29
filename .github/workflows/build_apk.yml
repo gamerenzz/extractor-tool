@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出代码 (此时仓库里只需有 pubspec.yaml, lib/main.dart)
+      # 1. 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -26,49 +26,61 @@ jobs:
         with:
           channel: 'stable'
 
-      # 4. 自动生成现代、无错的 Android 项目骨架 (规避一切 v1 embedding 及 Gradle 错误)
+      # 4. 自动生成现代、无错的 Android 项目骨架
       - name: Create Flutter Scaffolding
         run: |
           flutter create --platforms=android --org com.example .
 
-      # 5. 用 Python 动态注入安卓权限和中文 APP 名字 (代码提取器)
-      - name: Patch Android Manifest
+      # 5. 用 Python 动态修改安卓配置 (注入存储权限、修改应用名称、强升 compileSdk 至 36)
+      - name: Patch Android Configs
         run: |
           python3 -c "
           import os
+
+          # === 1. 修复 AndroidManifest.xml (权限与名称) ===
           manifest_path = 'android/app/src/main/AndroidManifest.xml'
-          with open(manifest_path, 'r', encoding='utf-8') as f:
-              content = f.read()
+          if os.path.exists(manifest_path):
+              with open(manifest_path, 'r', encoding='utf-8') as f:
+                  content = f.read()
 
-          # 声明需要注入的权限
-          permissions = '''
-              <uses-permission android:name='android.permission.MANAGE_EXTERNAL_STORAGE' />
-              <uses-permission android:name='android.permission.READ_EXTERNAL_STORAGE'/>
-              <uses-permission android:name='android.permission.WRITE_EXTERNAL_STORAGE'/>
-          '''
-          
-          # 1. 注入存储权限
-          if 'MANAGE_EXTERNAL_STORAGE' not in content:
-              content = content.replace(
-                  '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">',
-                  '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + permissions
-              )
+              permissions = '''
+                  <uses-permission android:name='android.permission.MANAGE_EXTERNAL_STORAGE' />
+                  <uses-permission android:name='android.permission.READ_EXTERNAL_STORAGE'/>
+                  <uses-permission android:name='android.permission.WRITE_EXTERNAL_STORAGE'/>
+              '''
+              
+              if 'MANAGE_EXTERNAL_STORAGE' not in content:
+                  content = content.replace(
+                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">',
+                      '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + permissions
+                  )
 
-          # 2. 注入旧版外部存储请求属性 (增强兼容性)
-          if 'android:requestLegacyExternalStorage' not in content:
-              content = content.replace(
-                  '<application',
-                  '<application android:requestLegacyExternalStorage=\"true\"'
-              )
+              if 'android:requestLegacyExternalStorage' not in content:
+                  content = content.replace(
+                      '<application',
+                      '<application android:requestLegacyExternalStorage=\"true\"'
+                  )
 
-          # 3. 修改应用桌面名称为 '代码提取器'
-          content = content.replace('android:label=\"pro_code_extractor\"', 'android:label=\"代码提取器\"')
-          content = content.replace('android:label=\"pro_code_extractor_android\"', 'android:label=\"代码提取器\"')
+              content = content.replace('android:label=\"pro_code_extractor\"', 'android:label=\"代码提取器\"')
+              content = content.replace('android:label=\"pro_code_extractor_android\"', 'android:label=\"代码提取器\"')
 
-          with open(manifest_path, 'w', encoding='utf-8') as f:
-              f.write(content)
-          
-          print('AndroidManifest.xml patched successfully!')
+              with open(manifest_path, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              print('AndroidManifest.xml patched successfully!')
+
+          # === 2. 修复 build.gradle (强制将 compileSdk 提升至 36 解决编译版本冲突) ===
+          gradle_path = 'android/app/build.gradle'
+          if os.path.exists(gradle_path):
+              with open(gradle_path, 'r', encoding='utf-8') as f:
+                  gradle_content = f.read()
+
+              # 替换 compileSdk 定义以满足最新 lifecycle 依赖
+              gradle_content = gradle_content.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              gradle_content = gradle_content.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
+
+              with open(gradle_path, 'w', encoding='utf-8') as f:
+                  f.write(gradle_content)
+              print('build.gradle patched with compileSdk = 36!')
           "
 
       # 6. 使用 Python 本地绘制生成高清图标
